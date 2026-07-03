@@ -38,10 +38,16 @@ async function viewonceCommand(sock, chatId, message) {
         for (const container of containers) {
             if (!container) continue;
             for (const [type, content] of Object.entries(container)) {
-                if (['imageMessage', 'videoMessage', 'audioMessage'].includes(type)) {
+                if (['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(type)) {
                     foundMedia = content;
                     mediaType = type.replace('Message', '');
-                    mimeType = content.mimetype || (mediaType === 'image' ? 'image/jpeg' : mediaType === 'video' ? 'video/mp4' : 'audio/ogg');
+                    mimeType = content.mimetype || (
+                        mediaType === 'image' ? 'image/jpeg' : 
+                        mediaType === 'video' ? 'video/mp4' : 
+                        mediaType === 'audio' ? 'audio/ogg' :
+                        mediaType === 'document' ? 'application/octet-stream' :
+                        'image/webp'
+                    );
                     break;
                 }
             }
@@ -50,7 +56,7 @@ async function viewonceCommand(sock, chatId, message) {
 
         if (!foundMedia) {
             return await sock.sendMessage(chatId, { 
-                text: 'No view-once media found. Reply to a view-once image, video, or audio with .vv' 
+                text: 'No view-once media found. Reply to a view-once image, video, audio, sticker, or document with .vv' 
             }, { quoted: message });
         }
 
@@ -58,26 +64,35 @@ async function viewonceCommand(sock, chatId, message) {
         const buffer = await downloadMedia(foundMedia, mediaType);
         if (!buffer || buffer.length === 0) throw new Error('Empty buffer');
 
-        // Build send options
-        const sendOpts = {
-            caption: foundMedia.caption || '',
-            mimetype: mimeType,
-        };
+        // Build send options based on media type
+        const sendOpts = {};
 
         if (mediaType === 'image') {
             sendOpts.image = buffer;
+            sendOpts.caption = foundMedia.caption || '';
+            sendOpts.mimetype = mimeType;
         } else if (mediaType === 'video') {
             sendOpts.video = buffer;
+            sendOpts.caption = foundMedia.caption || '';
+            sendOpts.mimetype = mimeType;
         } else if (mediaType === 'audio') {
             sendOpts.audio = buffer;
-            sendOpts.ptt = foundMedia.ptt || false; // preserve voice message vs audio
+            sendOpts.ptt = foundMedia.ptt || false;
+            sendOpts.mimetype = mimeType;
+        } else if (mediaType === 'sticker') {
+            sendOpts.sticker = buffer;
+        } else if (mediaType === 'document') {
+            sendOpts.document = buffer;
+            sendOpts.caption = foundMedia.caption || '';
+            sendOpts.fileName = foundMedia.fileName || 'document';
+            sendOpts.mimetype = foundMedia.mimetype || 'application/octet-stream';
         }
 
         // Send as normal media (NOT view-once)
         await sock.sendMessage(chatId, sendOpts, { quoted: message });
         
     } catch (err) {
-        console.error('ViewOnce error:', err.message);
+        console.error('❌ ViewOnce error:', err.message);
         // Only show error if we haven't sent anything
         try {
             await sock.sendMessage(chatId, { text: '❌ An error occurred. Please try again.' }, { quoted: message });

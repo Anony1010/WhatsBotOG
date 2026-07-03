@@ -186,6 +186,7 @@ async function storeMessage(sock, message) {
       } else if (vvMsg.audioMessage) {
         mediaType = 'audio';
         mediaPath = await downloadMediaToFile(vvMsg.audioMessage, 'audio', msgId) || '';
+        fileName = vvMsg.audioMessage.ptt ? 'voice_message' : 'audio';
       } else if (vvMsg.documentMessage) {
         mediaType = 'document'; content = vvMsg.documentMessage.caption || '';
         fileName = vvMsg.documentMessage.fileName || 'document';
@@ -207,6 +208,7 @@ async function storeMessage(sock, message) {
     } else if (msg.audioMessage) {
       mediaType = 'audio';
       mediaPath = await downloadMediaToFile(msg.audioMessage, 'audio', msgId) || '';
+      fileName = msg.audioMessage.ptt ? 'voice_message' : 'audio';
     } else if (msg.stickerMessage) {
       mediaType = 'sticker';
       mediaPath = await downloadMediaToFile(msg.stickerMessage, 'sticker', msgId) || '';
@@ -361,7 +363,7 @@ async function handleMessageRevocation(sock, revocationMessage) {
             await sock.sendMessage(ownerJid, {
               audio: { url: original.mediaPath },
               mimetype: 'audio/ogg',
-              ptt: original.fileName?.includes('voice') || false,
+              ptt: original.fileName === 'voice_message' || false,
               ...opts
             });
             break;

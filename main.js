@@ -90,7 +90,6 @@ const channelInfo = {
 };
 
 async function handleMessages(sock, messageUpdate, printLog) {
-    console.log('📩 WA Message received: type=' + messageUpdate?.type + ', hasMsg=' + !!(messageUpdate?.messages?.[0]?.message) + ', fromMe=' + !!(messageUpdate?.messages?.[0]?.key?.fromMe))
     try {
         const { messages, type } = messageUpdate;
         if (type !== 'notify') return;
