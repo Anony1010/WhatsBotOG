@@ -2,7 +2,7 @@ const axios = require('axios');
 const { igdl } = require("ruhend-scraper");
 
 const processedMessages = new Map();
-const CAPTION = "DOWNLOADED BY GASHAM";
+const CAPTION = "🔹DOWNLOADED BY GASHAM🔹";
 
 // Instagram URL patterns (supports all public link types)
 const IG_URL_PATTERNS = [
@@ -109,7 +109,7 @@ async function instagramCommand(sock, chatId, message) {
 
     if (!mediaItems || mediaItems.length === 0) {
       return await sock.sendMessage(chatId, {
-        text: '❌ Could not download this content. The post might be private or the link is invalid.'
+        text: '❌ Could not download this Instagram content. The post might be private or the link is invalid.'
       });
     }
 
@@ -135,34 +135,18 @@ async function instagramCommand(sock, chatId, message) {
           // Video: try buffer first for reliability
           try {
             const buf = await downloadBuffer(item.url);
-            // Re-mux to WhatsApp-compatible format if needed
-            const compatibleBuf = await ensureVideoCompatible(buf);
             await sock.sendMessage(chatId, {
-              video: compatibleBuf,
+              video: buf,
               mimetype: 'video/mp4',
               caption: CAPTION
             });
           } catch {
-            // Fallback: send via URL
-            try {
-              await sock.sendMessage(chatId, {
-                video: { url: item.url },
-                mimetype: 'video/mp4',
-                caption: CAPTION
-              });
-            } catch {
-              // Last resort: re-encode from URL
-              try {
-                const reBuf = await reEncodeVideo(item.url);
-                if (reBuf) {
-                  await sock.sendMessage(chatId, {
-                    video: reBuf,
-                    mimetype: 'video/mp4',
-                    caption: CAPTION
-                  });
-                }
-              } catch {}
-            }
+            // Fallback to URL send
+            await sock.sendMessage(chatId, {
+              video: { url: item.url },
+              mimetype: 'video/mp4',
+              caption: CAPTION
+            });
           }
         } else {
           // Image: try buffer first
@@ -191,103 +175,15 @@ async function instagramCommand(sock, chatId, message) {
 
     if (sentCount === 0) {
       await sock.sendMessage(chatId, {
-        text: '❌ Failed to download media. Try again later.'
+        text: '❌ Failed to download media from the Instagram link. Try again later.'
       });
     }
 
   } catch (error) {
     console.error('📸 Instagram error:', error.message);
     try {
-      await sock.sendMessage(chatId, { text: '❌ Error processing request. Try again later.' });
+      await sock.sendMessage(chatId, { text: '❌ Error processing Instagram request. Try again later.' });
     } catch {}
-  }
-}
-
-
-async function ensureVideoCompatible(buffer) {
-  const { spawnSync } = require('child_process');
-  const fs = require('fs');
-  const path = require('path');
-  const { tmpdir } = require('os');
-  const Crypto = require('crypto');
-  
-  const tmpIn = path.join(tmpdir(), Crypto.randomBytes(6).readUIntLE(0, 6).toString(36) + '.mp4');
-  const tmpOut = path.join(tmpdir(), Crypto.randomBytes(6).readUIntLE(0, 6).toString(36) + '.mp4');
-  
-  try {
-    fs.writeFileSync(tmpIn, buffer);
-    
-    // Re-mux to H.264/AAC in MP4 with faststart for WhatsApp compatibility
-    // Using -c copy first (fast) to avoid re-encoding if already compatible
-    const result = spawnSync('ffmpeg', [
-      '-y', '-i', tmpIn,
-      '-c:v', 'libx264',
-      '-c:a', 'aac',
-      '-movflags', '+faststart',
-      '-pix_fmt', 'yuv420p',
-      '-preset', 'fast',
-      '-crf', '23',
-      tmpOut
-    ], { timeout: 30000 });
-    
-    if (result.status === 0 && fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 1000) {
-      const reEncoded = fs.readFileSync(tmpOut);
-      return reEncoded;
-    }
-    return buffer;
-  } catch (e) {
-    console.error('[IG] Video remux error:', e.message);
-    return buffer;
-  } finally {
-    try { fs.unlinkSync(tmpIn); } catch {}
-    try { fs.unlinkSync(tmpOut); } catch {}
-  }
-}
-
-async function reEncodeVideo(url) {
-  const { spawnSync } = require('child_process');
-  const fs = require('fs');
-  const path = require('path');
-  const { tmpdir } = require('os');
-  const Crypto = require('crypto');
-  const axios = require('axios');
-  
-  const tmpIn = path.join(tmpdir(), Crypto.randomBytes(6).readUIntLE(0, 6).toString(36) + '.mp4');
-  const tmpOut = path.join(tmpdir(), Crypto.randomBytes(6).readUIntLE(0, 6).toString(36) + '.mp4');
-  
-  try {
-    // Download to temp file
-    const res = await axios({ url, responseType: 'stream', timeout: 45000 });
-    const writer = fs.createWriteStream(tmpIn);
-    res.data.pipe(writer);
-    await new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
-    
-    // Re-encode
-    const result = spawnSync('ffmpeg', [
-      '-y', '-i', tmpIn,
-      '-c:v', 'libx264',
-      '-c:a', 'aac',
-      '-movflags', '+faststart',
-      '-pix_fmt', 'yuv420p',
-      '-preset', 'fast',
-      '-crf', '23',
-      tmpOut
-    ], { timeout: 60000 });
-    
-    if (result.status === 0 && fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 1000) {
-      const buf = fs.readFileSync(tmpOut);
-      return buf;
-    }
-    return null;
-  } catch (e) {
-    console.error('[IG] Re-encode error:', e.message);
-    return null;
-  } finally {
-    try { fs.unlinkSync(tmpIn); } catch {}
-    try { fs.unlinkSync(tmpOut); } catch {}
   }
 }
 

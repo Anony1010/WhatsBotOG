@@ -18,15 +18,12 @@ async function helpCommand(sock, chatId, message) {
 │ ⌬ .status
 │ ⌬ .pdf
 │ ⌬ .docx
-│ ⌬ .compress
 ╰──────────────
 
 「 🔒 OWNER 」
 ╭──────────────
 │ ⌬ .mode
 │ ⌬ .setpp
-│ ⌬ .autoread
-│ ⌬ .anticall
 │ ⌬ .antidelete
 ╰──────────────
 

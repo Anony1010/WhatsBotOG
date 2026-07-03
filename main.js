@@ -36,7 +36,6 @@ const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
 const { isSudo } = require('./lib/index');
 const isOwnerOrSudo = require('./lib/isOwner');
-const { autoreadCommand, isAutoreadEnabled, handleAutoread } = require('./commands/autoread');
 
 // Command imports
 // help removed - using inline require
@@ -54,7 +53,6 @@ const staffCommand = require('./commands/staff');
 const viewOnceCommand = require('./commands/viewonce');
 const { incrementMessageCount, topMembers } = require('./commands/topmembers');
 const setProfilePicture = require('./commands/setpp');
-const { anticallCommand, readState: readAnticallState } = require('./commands/anticall');
 const { handleAntideleteCommand, handleMessageRevocation, storeMessage } = require('./commands/antidelete');
 const { handleTranslateCommand } = require('./commands/translate');
 const aiCommand = require('./commands/ai');
@@ -62,7 +60,6 @@ const openCommand = require('./commands/open');
 const { statusCommand, handleStatusSelection } = require('./commands/status');
 const pdfCommand = require('./commands/pdf');
 const docxCommand = require('./commands/docx');
-const { compressCommand, handleCompressSelection } = require('./commands/compress');
 const urlCommand = require('./commands/url');
 const { addCommandReaction, handleAreactCommand } = require('./lib/reactions');
 const imagineCommand = require('./commands/imagine');
@@ -97,8 +94,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const message = messages[0];
         if (!message?.message) return;
 
-        // Handle autoread functionality
-        await handleAutoread(sock, message);
 
         // Store message for antidelete feature
         if (message.message) {
@@ -202,12 +197,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
             } catch (e) { }
         }
 
-        // Check for compress target size selection (before command prefix check)
+        // Check for status selection (before command prefix check)
         if (!userMessage.startsWith('.')) {
             const rawNum = rawText || userMessage;
             if (/^\d+$/.test(rawNum.trim())) {
-                const handledCompress = await handleCompressSelection(sock, chatId, message, rawNum.trim());
-                if (handledCompress) return;
                 const handledStatus = await handleStatusSelection(sock, chatId, message, rawNum.trim());
                 if (handledStatus) return;
             }
@@ -254,7 +247,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
 
         // List of owner commands
-        const ownerCommands = ['.mode', '.antidelete', '.setpp', '.areact', '.autoread'];
+        const ownerCommands = ['.mode', '.antidelete', '.setpp', '.areact'];
         const isOwnerCommand = ownerCommands.some(cmd => userMessage.startsWith(cmd));
 
         
@@ -383,10 +376,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await docxCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
-            case userMessage === '.compress':
-                await compressCommand(sock, chatId, message);
-                commandExecuted = true;
-                break;
             case userMessage === '.vv' || userMessage === '.viewonce':
                 await viewOnceCommand(sock, chatId, message);
                 commandExecuted = true;
@@ -412,17 +401,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await spotifyCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
-            case userMessage === '.anticall' || userMessage.startsWith('.anticall '):
-                if (!message.key.fromMe && !senderIsOwnerOrSudo) {
-                    await sock.sendMessage(chatId, { text: 'Only owner/sudo can use anticall.' }, { quoted: message });
-                    break;
-                }
-                {
-                    const args = userMessage.split(' ').slice(1).join(' ');
-                    await anticallCommand(sock, chatId, message, args);
-                }
-                commandExecuted = true;
-                break;
             // ===== AI COMMANDS =====
             case userMessage.startsWith('.gpt'):
                 await aiCommand(sock, chatId, message);
@@ -446,13 +424,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage.startsWith('.setpp'):
                 await setProfilePicture(sock, chatId, message);
-                commandExecuted = true;
-                break;
-            case userMessage.startsWith('.autoread'):
-                {
-                    const args = userMessage.split(' ').slice(1).join(' ');
-                    await autoreadCommand(sock, chatId, message, args);
-                }
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.areact'):
