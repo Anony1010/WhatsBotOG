@@ -56,112 +56,137 @@ function detectPlatform(url) {
   return null;
 }
 
-// ============ YOUTUBE DOWNLOAD (yt-dlp) ============
+// ============ YOUTUBE DOWNLOAD (ytdl-core + ffmpeg) ============
+// Inspired by Knightbot-MD ytdl2.js logic
 async function downloadYouTube(sock, chatId, url) {
   let tempFilePath = null;
   try {
+    const ytdl = require('ytdl-core');
+    
     // Send thumbnail with video info
     try {
-      const yts = require("yt-search");
-      const search = await yts(url);
-      const vid = search?.videos?.[0];
-      if (vid?.thumbnail) {
+      const info = await ytdl.getInfo(url, { lang: 'en' });
+      const details = info.videoDetails;
+      const thumb = details.thumbnails?.slice(-1)?.[0]?.url || details.thumbnails?.[0]?.url;
+      if (thumb) {
         await sock.sendMessage(chatId, {
-          image: { url: vid.thumbnail },
-          caption: `${vid.title}\n👤 ${vid.author?.name || '?'}\n⏱ ${vid.timestamp || '?'}\n\nDownloaded By Gasham`
+          image: { url: thumb },
+          caption: `${details.title}\n👤 ${details.author?.name || '?'}\n⏱ ${new Date(details.lengthSeconds * 1000).toISOString().substr(11, 8)}\n\nDOWNLOADED BY GASHAM`
         });
       }
-    } catch (e) { console.log("YT thumb error:", e.message); }
-
-    // Download audio via yt-dlp (fastest + most reliable)
-    const tmpName = `yt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.m4a`;
-    tempFilePath = path.join(TEMP_DIR, tmpName);
-
-    await ytdlExec(url, {
-      format: 'bestaudio[ext=m4a]/bestaudio',
-      output: tempFilePath,
-      noCheckCertificates: true,
-      preferFreeFormats: true,
-      noWarnings: true,
-      geoBypass: true,
-      addHeader: ['User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'],
-    });
-
-    if (!fs.existsSync(tempFilePath) || fs.statSync(tempFilePath).size < 1000) {
-      throw new Error("File empty");
+    } catch (thumbErr) {
+      console.log("YT thumb error:", thumbErr.message);
     }
 
-    const fileSize = (fs.statSync(tempFilePath).size / 1024 / 1024).toFixed(2);
-    console.log(`✅ YT audio: ${fileSize}MB`);
+    // Download audio via ytdl-core stream + ffmpeg MP3 conversion
+    const tmpName = `yt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.mp3`;
+    tempFilePath = path.join(TEMP_DIR, tmpName);
 
-    await sock.sendMessage(chatId, {
-      audio: { url: tempFilePath },
-      mimetype: 'audio/mp4',
-      fileName: `youtube_audio_${Date.now()}.m4a`,
-      caption: 'Downloaded By Gasham'
-    });
-
-    // Cleanup
-    try { fs.unlinkSync(tempFilePath); tempFilePath = null; } catch {}
-    return true;
-
-  } catch (e) {
-    console.error("YT download failed:", e.message);
-    if (tempFilePath) { try { fs.unlinkSync(tempFilePath); } catch {} }
-
-    // Fallback: yt-dlp JSON → axios
+    // Method 1: ytdl-core audio stream + ffmpeg (primary, like Knightbot)
     try {
-      const info = await ytdlExec(url, {
-        dumpSingleJson: true,
+      const ffmpeg = require('fluent-ffmpeg');
+      const stream = ytdl(url, {
+        quality: 'highestaudio',
+        filter: 'audioonly',
+      });
+
+      await new Promise((resolve, reject) => {
+        ffmpeg(stream)
+          .audioBitrate(128)
+          .audioFrequency(44100)
+          .audioChannels(2)
+          .audioCodec('libmp3lame')
+          .toFormat('mp3')
+          .save(tempFilePath)
+          .on('end', () => {
+            if (fs.existsSync(tempFilePath) && fs.statSync(tempFilePath).size > 1000) resolve();
+            else reject(new Error('File empty after conversion'));
+          })
+          .on('error', (err) => reject(err));
+      });
+
+      const fileSize = (fs.statSync(tempFilePath).size / 1024 / 1024).toFixed(2);
+      console.log(`✅ YT audio: ${fileSize}MB`);
+
+      await sock.sendMessage(chatId, {
+        audio: { url: tempFilePath },
+        mimetype: 'audio/mpeg',
+        fileName: `youtube_audio_${Date.now()}.mp3`,
+        caption: 'DOWNLOADED BY GASHAM'
+      });
+
+      try { fs.unlinkSync(tempFilePath); tempFilePath = null; } catch {}
+      return true;
+    } catch (e) {
+      console.log("YT ytdl-core+ffmpeg failed:", e.message.slice(0, 60));
+      if (tempFilePath) { try { fs.unlinkSync(tempFilePath); } catch {} }
+    }
+
+    // Method 2: yt-dlp direct download (fallback)
+    try {
+      const ytdlExec = require('youtube-dl-exec');
+      const tmpName2 = `yt2_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.m4a`;
+      tempFilePath = path.join(TEMP_DIR, tmpName2);
+
+      await ytdlExec(url, {
+        format: 'bestaudio[ext=m4a]/bestaudio',
+        output: tempFilePath,
         noCheckCertificates: true,
         preferFreeFormats: true,
         noWarnings: true,
         geoBypass: true,
       });
-      const af = info?.formats?.findLast(f =>
-        f.acodec && f.acodec !== 'none' && f.vcodec === 'none' && f.url && !f.cipher
-      );
-      if (af?.url) {
-        const res = await axios.get(af.url, {
-          responseType: 'arraybuffer', timeout: 120000,
-          headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.youtube.com/' },
-          maxRedirects: 5,
-        });
-        const buf = Buffer.from(res.data);
-        if (buf.length > 1000) {
-          await sock.sendMessage(chatId, {
-            audio: buf, mimetype: 'audio/mp4',
-            caption: 'Downloaded By Gasham'
-          });
-          console.log(`✅ YT audio (fallback): ${(buf.length/1024/1024).toFixed(2)}MB`);
-          return true;
-        }
-      }
-    } catch (e2) { console.log("YT fallback failed:", e2.message?.slice(0, 60)); }
 
+      if (fs.existsSync(tempFilePath) && fs.statSync(tempFilePath).size > 1000) {
+        const fileSize = (fs.statSync(tempFilePath).size / 1024 / 1024).toFixed(2);
+        console.log(`✅ YT audio (yt-dlp): ${fileSize}MB`);
+        await sock.sendMessage(chatId, {
+          audio: { url: tempFilePath },
+          mimetype: 'audio/mp4',
+          fileName: `youtube_audio_${Date.now()}.m4a`,
+          caption: 'DOWNLOADED BY GASHAM'
+        });
+        try { fs.unlinkSync(tempFilePath); tempFilePath = null; } catch {}
+        return true;
+      }
+    } catch (e2) { console.log("YT yt-dlp fallback failed:", e2.message?.slice(0, 60)); }
+
+    return false;
+  } catch (e) {
+    console.error("YT download failed:", e.message);
+    if (tempFilePath) { try { fs.unlinkSync(tempFilePath); } catch {} }
     return false;
   }
 }
 
-// ============ INSTAGRAM DOWNLOAD ============
+// ============ INSTAGRAM DOWNLOAD (URL streaming primary) ============
 async function downloadInstagram(sock, chatId, url) {
   try {
-    try {
-      const result = await igdl(url);
-      if (result?.data?.length > 0) {
-        for (const item of result.data) {
-          const mediaUrl = item.url || item.downloadUrl || item;
-          const res = await axios.get(typeof mediaUrl === "string" ? mediaUrl : mediaUrl, {
-            responseType: "arraybuffer", timeout: 30000,
-          });
-          const buf = Buffer.from(res.data);
-          const isVideo = typeof mediaUrl === "string" && mediaUrl.includes(".mp4");
-          if (isVideo) await sock.sendMessage(chatId, { video: buf, caption: 'Downloaded By Gasham' });
-          else await sock.sendMessage(chatId, { image: buf, caption: 'Downloaded By Gasham' });
+    const result = await igdl(url);
+    if (result?.data?.length > 0) {
+      for (const item of result.data) {
+        const mediaUrl = item.url || item.downloadUrl || item;
+        const isVideo = item.type === 'video' || /\.(mp4|mov|webm)$/i.test(mediaUrl) || /\/reel\/|\/tv\//.test(url);
+        if (isVideo) {
+          // Primary: URL streaming (fast)
+          try {
+            await sock.sendMessage(chatId, { video: { url: mediaUrl }, mimetype: 'video/mp4', caption: 'DOWNLOADED BY GASHAM' });
+          } catch {
+            // Fallback: buffer download
+            const res = await axios.get(typeof mediaUrl === "string" ? mediaUrl : mediaUrl, { responseType: "arraybuffer", timeout: 30000 });
+            await sock.sendMessage(chatId, { video: Buffer.from(res.data), mimetype: 'video/mp4', caption: 'DOWNLOADED BY GASHAM' });
+          }
+        } else {
+          try {
+            await sock.sendMessage(chatId, { image: { url: mediaUrl }, caption: 'DOWNLOADED BY GASHAM' });
+          } catch {
+            const res = await axios.get(typeof mediaUrl === "string" ? mediaUrl : mediaUrl, { responseType: "arraybuffer", timeout: 30000 });
+            await sock.sendMessage(chatId, { image: Buffer.from(res.data), caption: 'DOWNLOADED BY GASHAM' });
+          }
         }
-        return true;
       }
-    } catch (e) { console.log("igdl failed:", e.message); }
+      return true;
+    }
     return false;
   } catch (e) { console.log("IG download error:", e.message); return false; }
 }
@@ -173,7 +198,7 @@ async function downloadTikTok(sock, chatId, url) {
       const result = await ttdl(url);
       if (result?.video) {
         const res = await axios.get(result.video, { responseType: "arraybuffer", timeout: 30000 });
-        await sock.sendMessage(chatId, { video: Buffer.from(res.data), caption: 'Downloaded By Gasham' });
+        await sock.sendMessage(chatId, { video: Buffer.from(res.data), caption: 'DOWNLOADED BY GASHAM' });
         return true;
       }
       if (result?.data?.length > 0) {
@@ -182,7 +207,7 @@ async function downloadTikTok(sock, chatId, url) {
           const res = await axios.get(typeof mediaUrl === "string" ? mediaUrl : mediaUrl, {
             responseType: "arraybuffer", timeout: 30000,
           });
-          await sock.sendMessage(chatId, { video: Buffer.from(res.data), caption: 'Downloaded By Gasham' });
+          await sock.sendMessage(chatId, { video: Buffer.from(res.data), caption: 'DOWNLOADED BY GASHAM' });
         }
         return true;
       }
@@ -192,7 +217,7 @@ async function downloadTikTok(sock, chatId, url) {
       const res = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`, { timeout: 15000 });
       if (res.data?.data?.play) {
         const mediaRes = await axios.get(res.data.data.play, { responseType: "arraybuffer", timeout: 30000 });
-        await sock.sendMessage(chatId, { video: Buffer.from(mediaRes.data), caption: 'Downloaded By Gasham' });
+        await sock.sendMessage(chatId, { video: Buffer.from(mediaRes.data), caption: 'DOWNLOADED BY GASHAM' });
         return true;
       }
     } catch (e) { console.log("TikWM failed:", e.message); }
