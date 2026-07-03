@@ -425,6 +425,32 @@ async function loadBotHandlers(sock, phone) {
     sock.ev.on("group-participants.update", async (u) => {
       try { await handleGroupParticipantUpdate(sock, u) } catch (e) {}
     })
+    // Handle incoming calls for anticall feature
+    sock.ev.on("call", async (calls) => {
+      try {
+        const anticallPath = "./data/anticall.json"
+        let anticallEnabled = false
+        try {
+          if (require("fs").existsSync(anticallPath)) {
+            anticallEnabled = JSON.parse(require("fs").readFileSync(anticallPath, "utf8")).enabled === true
+          }
+        } catch (e) {}
+        if (!anticallEnabled) return
+        for (const call of calls) {
+          if (call.status === "offer") {
+            try {
+              await sock.rejectCall(call.id, call.from)
+              await sock.updateBlockStatus(call.from, "block")
+              console.log("Anticall: blocked call from", call.from.split("@")[0])
+            } catch (e) {
+              console.log("Anticall error:", e.message)
+            }
+          }
+        }
+      } catch (e) {
+        console.log("Anticall handler error:", e.message)
+      }
+    })
     console.log(`Bot handlers loaded for +${phone}`)
     // Mark handlers as loaded
     handlersLoaded.add(phone)

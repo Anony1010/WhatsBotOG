@@ -19,55 +19,36 @@ function initConfig() {
 }
 
 // Toggle autoread feature
-async function autoreadCommand(sock, chatId, message) {
+async function autoreadCommand(sock, chatId, message, cmdArgs) {
     try {
         const senderId = message.key.participant || message.key.remoteJid;
         const isOwner = await isOwnerOrSudo(senderId, sock, chatId);
         
         if (!message.key.fromMe && !isOwner) {
-            await sock.sendMessage(chatId, {
-                text: '❌ This command is only available for the owner!',
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true,
-                    forwardedNewsletterMessageInfo: {
-                        newsletterJid: 'n@newsletter',
-                        newsletterName: 'GASHAM',
-                        serverMessageId: -1
-                    }
-                }
-            });
+            await sock.sendMessage(chatId, { text: '❌ This command is only available for the owner!' });
             return;
         }
 
-        // Get command arguments
-        const args = message.message?.conversation?.trim().split(' ').slice(1) || 
-                    message.message?.extendedTextMessage?.text?.trim().split(' ').slice(1) || 
-                    [];
+        // Get command arguments from cmdArgs or parse from message
+        let args = cmdArgs || [];
+        if (!args || args.length === 0) {
+            const msgText = message.message?.conversation?.trim() || 
+                           message.message?.extendedTextMessage?.text?.trim() || '';
+            args = msgText.startsWith('.') ? msgText.split(' ').slice(1) : [];
+        }
         
         // Initialize or read config
         const config = initConfig();
         
         // Toggle based on argument or toggle current state if no argument
-        if (args.length > 0) {
+        if (args.length > 0 && args[0]) {
             const action = args[0].toLowerCase();
             if (action === 'on' || action === 'enable') {
                 config.enabled = true;
             } else if (action === 'off' || action === 'disable') {
                 config.enabled = false;
             } else {
-                await sock.sendMessage(chatId, {
-                    text: '❌ Invalid option! Use: .autoread on/off',
-                    contextInfo: {
-                        forwardingScore: 1,
-                        isForwarded: true,
-                        forwardedNewsletterMessageInfo: {
-                            newsletterJid: 'n@newsletter',
-                            newsletterName: 'GASHAM',
-                            serverMessageId: -1
-                        }
-                    }
-                });
+                await sock.sendMessage(chatId, { text: '❌ Invalid option! Use: .autoread on/off' });
                 return;
             }
         } else {
@@ -80,32 +61,12 @@ async function autoreadCommand(sock, chatId, message) {
         
         // Send confirmation message
         await sock.sendMessage(chatId, {
-            text: `✅ Auto-read has been ${config.enabled ? 'enabled' : 'disabled'}!`,
-            contextInfo: {
-                forwardingScore: 1,
-                isForwarded: true,
-                forwardedNewsletterMessageInfo: {
-                    newsletterJid: 'n@newsletter',
-                    newsletterName: 'GASHAM',
-                    serverMessageId: -1
-                }
-            }
+            text: `✅ Auto-read has been ${config.enabled ? 'enabled' : 'disabled'}!`
         });
         
     } catch (error) {
         console.error('Error in autoread command:', error);
-        await sock.sendMessage(chatId, {
-            text: '❌ Error processing command!',
-            contextInfo: {
-                forwardingScore: 1,
-                isForwarded: true,
-                forwardedNewsletterMessageInfo: {
-                    newsletterJid: 'n@newsletter',
-                    newsletterName: 'GASHAM',
-                    serverMessageId: -1
-                }
-            }
-        });
+        await sock.sendMessage(chatId, { text: '❌ Error processing command!' });
     }
 }
 
@@ -154,12 +115,8 @@ function isBotMentionedInMessage(message, botNumber) {
             return true;
         }
         
-        // Check for bot name mentions (optional, can be customized)
-        const botNames = [global.botname?.toLowerCase(), 'bot', 'gasham', 'gasham bot'];
-        const words = textContent.toLowerCase().split(/\s+/);
-        if (botNames.some(name => words.includes(name))) {
-            return true;
-        }
+        // Always mention via @username for reliable detection
+        // Bot name mentions without @ are not auto-detected to avoid false positives
     }
     
     return false;

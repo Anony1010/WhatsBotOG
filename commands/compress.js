@@ -49,7 +49,7 @@ async function compressCommand(sock, chatId, message) {
         const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
         const extDisplay = ext;
 
-        await sock.sendMessage(chatId, { react: { text: '', key: message.key } });
+        await sock.sendMessage(chatId, { react: { text: '✅', key: message.key } });
 
         // Ask user for target size
         await sock.sendMessage(chatId, {
@@ -67,7 +67,7 @@ async function compressCommand(sock, chatId, message) {
 
     } catch (error) {
         console.error('[Compress] Error:', error.message);
-        await sock.sendMessage(chatId, { react: { text: '', key: message.key } });
+        await sock.sendMessage(chatId, { react: { text: '✅', key: message.key } });
         delete compressStates[chatId];
         try { await sock.sendMessage(chatId, { text: '❌ Compression failed. Please try again.' }, { quoted: message }); } catch {}
     }
@@ -103,18 +103,18 @@ async function handleCompressSelection(sock, chatId, message, text) {
     try {
         const result = await compressFile(state.buffer, state.ext, targetBytes);
         if (!result || result.length >= state.originalSize) {
-            await sock.sendMessage(chatId, { react: { text: '', key: message.key } });
+            await sock.sendMessage(chatId, { react: { text: '✅', key: message.key } });
             await sock.sendMessage(chatId, { text: '⚠️ Hədəf ölçüyə çatmaq mümkün olmadı. Ən yaxın nəticə göndərilir.' }, { quoted: message });
             await sendOriginalFile(sock, chatId, state);
         } else {
             const compressedMB = (result.length / (1024 * 1024)).toFixed(1);
-            await sock.sendMessage(chatId, { react: { text: '', key: message.key } });
+            await sock.sendMessage(chatId, { react: { text: '✅', key: message.key } });
             await sock.sendMessage(chatId, { text: `✅ Sıxışdırıldı: ${originalMB} MB → ${compressedMB} MB` }, { quoted: message });
             await sendCompressedFile(sock, chatId, result, state.ext);
         }
     } catch (e) {
         console.error('[Compress] Error:', e.message);
-        await sock.sendMessage(chatId, { react: { text: '', key: message.key } });
+        await sock.sendMessage(chatId, { react: { text: '✅', key: message.key } });
         await sock.sendMessage(chatId, { text: '❌ Sıxışdırma uğursuz oldu: ' + e.message }, { quoted: message });
     }
 
@@ -156,8 +156,16 @@ async function compressVideo(buffer, targetBytes) {
         
         fs.writeFileSync(inputPath, buffer);
         
-        // Calculate target bitrate based on target size
-        const durationSec = 10; // estimate
+        // Get actual video duration via ffprobe for accurate bitrate calculation
+        let durationSec = 10;
+        try {
+            const { spawnSync } = require('child_process');
+            const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', inputPath], { timeout: 10000 });
+            if (probe.status === 0 && probe.stdout.length > 0) {
+                const parsed = parseFloat(probe.stdout.toString().trim());
+                if (!isNaN(parsed) && parsed > 0) durationSec = parsed;
+            }
+        } catch (e) {}
         const targetBitrate = Math.floor((targetBytes * 8) / durationSec);
         const bitrateK = Math.max(Math.floor(targetBitrate / 1000), 100);
         

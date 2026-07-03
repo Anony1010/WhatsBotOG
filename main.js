@@ -225,18 +225,19 @@ async function handleMessages(sock, messageUpdate, printLog) {
             if (!isReplyEnabled()) {
                 const downloaded = await handleAutoDownload(sock, chatId, rawMsg, message);
                 if (downloaded) return;
-            }
 
-            if (igPattern.test(rawMsg)) {
-                const instagramCommand = require('./commands/instagram');
-                await instagramCommand(sock, chatId, message);
-                return;
-            }
+                // Instagram & TikTok auto-download only when reply mode is OFF
+                if (igPattern.test(rawMsg)) {
+                    const instagramCommand = require('./commands/instagram');
+                    await instagramCommand(sock, chatId, message);
+                    return;
+                }
 
-            if (tkPattern.test(rawMsg)) {
-                const tiktokCommand = require('./commands/tiktok');
-                await tiktokCommand(sock, chatId, message);
-                return;
+                if (tkPattern.test(rawMsg)) {
+                    const tiktokCommand = require('./commands/tiktok');
+                    await tiktokCommand(sock, chatId, message);
+                    return;
+                }
             }
 
             if (isGroup) {
